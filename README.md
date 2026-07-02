@@ -104,3 +104,7 @@ Catalog data is sourced from [crazyuploader/IMDb-Top-50](https://github.com/craz
 - **Server:** Express
 - **Scheduling:** node-cron
 - **Container:** Docker (node:20-slim)
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
