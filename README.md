@@ -24,7 +24,7 @@
 
 If someone is already hosting the addon (or you have it running), add it to Stremio:
 
-1. Open **Stremio** ? go to the **Addons** page (puzzle piece icon)
+1. Open **Stremio** and go to the **Addons** page (puzzle piece icon)
 2. In the search bar at the top, enter the addon URL:
    ```
    http://<your-server-ip>:7001/manifest.json
@@ -79,10 +79,10 @@ The addon will be available at `http://localhost:7001/manifest.json`.
 |----------|---------|-------------|
 | `PORT`   | `7001`  | HTTP port the addon listens on |
 
-Example:
+Example with a custom port:
 
 ```bash
-docker run -d -e PORT=8080 -p 8080:8080 imdb-popular-stremio
+docker run -d -e PORT=7001 -p 7001:7001 --restart unless-stopped imdb-popular-stremio
 ```
 
 ## API Endpoints
@@ -104,7 +104,3 @@ Catalog data is sourced from [crazyuploader/IMDb-Top-50](https://github.com/craz
 - **Server:** Express
 - **Scheduling:** node-cron
 - **Container:** Docker (node:20-slim)
-
-## License
-
-MIT
