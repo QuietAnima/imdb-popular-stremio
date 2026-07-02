@@ -1,30 +1,27 @@
 const express = require("express");
 const cron = require("node-cron");
+const fs = require("fs");
+const path = require("path");
+
 const app = express();
 const PORT = process.env.PORT || 7001;
+const TOP_RATED_THRESHOLD = 7.0;
 
 const SOURCES = {
   movies: "https://raw.githubusercontent.com/crazyuploader/IMDb-Top-50/main/data/popular/movies.json",
   shows: "https://raw.githubusercontent.com/crazyuploader/IMDb-Top-50/main/data/popular/shows.json",
 };
 
-const MANIFEST = {
-  id: "community.imdb-popular",
-  version: "1.0.8",
-  name: "IMDb Popular",
-  description: "IMDb Most Popular Movies and TV Shows, updated daily",
-  logo: "",
-  resources: ["catalog"],
-  types: ["movie", "series"],
-  catalogs: [
-    { type: "movie", id: "imdb-popular-movies", name: "IMDb Popular Movies" },
-    { type: "series", id: "imdb-popular-series", name: "IMDb Popular Series" },
-  ],
-  behaviorHints: { configurable: false },
-  idPrefixes: ["tt"],
-};
+// ---------------------------------------------------------------------------
+// Data stores
+// ---------------------------------------------------------------------------
 
-const catalogs = { movies: [], shows: [] };
+const allMetas = { movies: [], shows: [] };
+const genreSets = { movie: new Set(), series: new Set() };
+
+// ---------------------------------------------------------------------------
+// Utility helpers
+// ---------------------------------------------------------------------------
 
 async function fetchJSON(url) {
   const { default: fetch } = await import("node-fetch").catch(() => ({ default: globalThis.fetch }));
@@ -41,11 +38,8 @@ async function fetchJSON(url) {
 function decodeEntities(str) {
   if (!str || typeof str !== "string") return str;
   return str
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
 }
@@ -57,6 +51,17 @@ function extractImdbId(item) {
   const m = link.match(/tt\d{7,}/);
   return m ? m[0] : null;
 }
+
+function parseRankChange(str) {
+  if (!str || typeof str !== "string") return 0;
+  const m = str.match(/(UP|DOWN)\s+(\d+)/i);
+  if (!m) return 0;
+  return (m[1].toUpperCase() === "UP" ? 1 : -1) * parseInt(m[2], 10);
+}
+
+// ---------------------------------------------------------------------------
+// Data transformation & loading
+// ---------------------------------------------------------------------------
 
 function toStremioMeta(item, type) {
   const id = extractImdbId(item);
@@ -77,17 +82,33 @@ function toStremioMeta(item, type) {
   if (item.certificate) meta.certification = item.certificate;
   if (item.directors) meta.director = Array.isArray(item.directors) ? item.directors : [item.directors];
   if (item.stars) meta.cast = typeof item.stars === "string" ? item.stars.split(/,\s*/) : item.stars;
+  // Internal — stripped before serving to Stremio
+  meta._rankChange = parseRankChange(item.meterRankChange);
   return meta;
+}
+
+function collectGenres(metaList, type) {
+  genreSets[type] = new Set();
+  for (const m of metaList) {
+    if (m.genres) m.genres.forEach((g) => genreSets[type].add(g));
+  }
 }
 
 async function refreshCatalog(key, url, type) {
   try {
     const data = await fetchJSON(url);
     const items = Array.isArray(data) ? data : data.items || data.results || [];
-    const metas = items.map((i) => toStremioMeta(i, type)).filter(Boolean);
-    if (metas.length > 0) {
-      catalogs[key] = metas;
-      console.log(`[${key}] Loaded ${metas.length} items`);
+    const results = items.map((i) => toStremioMeta(i, type)).filter(Boolean);
+    if (results.length > 0) {
+      allMetas[key] = results;
+      collectGenres(results, type);
+      const trending = results.filter((m) => m._rankChange > 0).length;
+      const topRated = results.filter(
+        (m) => m.imdbRating && parseFloat(m.imdbRating) >= TOP_RATED_THRESHOLD
+      ).length;
+      console.log(
+        `[${key}] ${results.length} items | ${trending} trending | ${topRated} top-rated | ${genreSets[type].size} genres`
+      );
     }
   } catch (e) {
     console.error(`[${key}] Refresh failed:`, e.message);
@@ -101,7 +122,113 @@ async function refreshAll() {
   ]);
 }
 
-const hits = { manifest: 0, movies: 0, shows: 0, other: 0 };
+// ---------------------------------------------------------------------------
+// Request helpers
+// ---------------------------------------------------------------------------
+
+function parseExtra(str) {
+  const result = {};
+  if (!str) return result;
+  for (const pair of str.split("&")) {
+    const eq = pair.indexOf("=");
+    if (eq < 1) continue;
+    result[pair.slice(0, eq)] = decodeURIComponent(pair.slice(eq + 1));
+  }
+  return result;
+}
+
+function stripInternal({ _rankChange, ...clean }) {
+  return clean;
+}
+
+function resolveCatalog(type, id, extra) {
+  const key = type === "movie" ? "movies" : "shows";
+  let list = allMetas[key];
+  if (!list || !list.length) return [];
+
+  // Base selection by catalog type
+  if (id.startsWith("imdb-trending-")) {
+    list = list
+      .filter((m) => m._rankChange > 0)
+      .sort((a, b) => b._rankChange - a._rankChange);
+  } else if (id.startsWith("imdb-top-rated-")) {
+    list = list
+      .filter((m) => m.imdbRating && parseFloat(m.imdbRating) >= TOP_RATED_THRESHOLD)
+      .sort((a, b) => parseFloat(b.imdbRating) - parseFloat(a.imdbRating));
+  } else if (!id.startsWith("imdb-popular-")) {
+    return [];
+  }
+
+  // Genre filter
+  if (extra.genre) {
+    list = list.filter((m) => m.genres && m.genres.includes(extra.genre));
+  }
+
+  // Search filter — matches title, description, cast, and director
+  if (extra.search) {
+    const q = extra.search.toLowerCase();
+    list = list.filter(
+      (m) =>
+        m.name.toLowerCase().includes(q) ||
+        (m.description && m.description.toLowerCase().includes(q)) ||
+        (m.cast && m.cast.some((c) => c.toLowerCase().includes(q))) ||
+        (m.director && m.director.some((d) => d.toLowerCase().includes(q)))
+    );
+  }
+
+  // Pagination
+  const skip = parseInt(extra.skip) || 0;
+  if (skip > 0) list = list.slice(skip);
+
+  return list.map(stripInternal);
+}
+
+// ---------------------------------------------------------------------------
+// Manifest (built dynamically so genre lists stay current)
+// ---------------------------------------------------------------------------
+
+function buildManifest(proto, host) {
+  const movieGenres = [...genreSets.movie].sort();
+  const seriesGenres = [...genreSets.series].sort();
+
+  const movieExtras = [
+    { name: "genre", options: movieGenres },
+    { name: "search" },
+    { name: "skip" },
+  ];
+  const seriesExtras = [
+    { name: "genre", options: seriesGenres },
+    { name: "search" },
+    { name: "skip" },
+  ];
+
+  return {
+    id: "community.imdb-popular",
+    version: "2.0.0",
+    name: "IMDb Popular",
+    description:
+      "IMDb Most Popular Movies & TV Shows — trending, top-rated, genre filtering, and search",
+    logo: `${proto}://${host}/logo.png`,
+    resources: ["catalog"],
+    types: ["movie", "series"],
+    catalogs: [
+      { type: "movie", id: "imdb-popular-movies", name: "IMDb Popular Movies", extra: movieExtras },
+      { type: "series", id: "imdb-popular-series", name: "IMDb Popular Series", extra: seriesExtras },
+      { type: "movie", id: "imdb-trending-movies", name: "IMDb Trending Movies", extra: movieExtras },
+      { type: "series", id: "imdb-trending-series", name: "IMDb Trending Series", extra: seriesExtras },
+      { type: "movie", id: "imdb-top-rated-movies", name: "IMDb Top Rated Popular", extra: movieExtras },
+      { type: "series", id: "imdb-top-rated-series", name: "IMDb Top Rated Popular", extra: seriesExtras },
+    ],
+    behaviorHints: { configurable: false },
+    idPrefixes: ["tt"],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Express app
+// ---------------------------------------------------------------------------
+
+const hits = { manifest: 0, catalog: 0 };
 
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -111,8 +238,9 @@ app.use((req, res, next) => {
   next();
 });
 
-const LOGO_URL = "https://raw.githubusercontent.com/QuietAnima/imdb-popular-stremio/main/logo.png";
-const fs = require("fs"), path = require("path");
+// Logo ---
+const LOGO_URL =
+  "https://raw.githubusercontent.com/QuietAnima/imdb-popular-stremio/main/logo.png";
 const LOGO_PATH = path.join(__dirname, "logo.png");
 let logoBuf = null;
 
@@ -124,7 +252,9 @@ async function ensureLogo() {
       console.log(`[logo] Loaded from cache: ${logoBuf.length} bytes`);
       return;
     }
-    const { default: fetch } = await import("node-fetch").catch(() => ({ default: globalThis.fetch }));
+    const { default: fetch } = await import("node-fetch").catch(() => ({
+      default: globalThis.fetch,
+    }));
     const fn = fetch || globalThis.fetch;
     const res = await fn(LOGO_URL);
     if (res.ok) {
@@ -145,34 +275,50 @@ app.get("/logo.png", async (_, res) => {
   res.send(logoBuf);
 });
 
-app.get("/manifest.json", (req, res) => { hits.manifest++; const proto = req.headers["x-forwarded-proto"] || req.protocol || "http"; const host = req.headers.host; res.json({ ...MANIFEST, logo: `${proto}://${host}/logo.png` }); });
+// Routes ---
+app.get("/manifest.json", (req, res) => {
+  hits.manifest++;
+  const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
+  res.json(buildManifest(proto, req.headers.host));
+});
 
 app.get("/catalog/:type/:id.json", (req, res) => {
-  const { type, id } = req.params;
-  if (type === "movie" && id === "imdb-popular-movies") { hits.movies++; return res.json({ metas: catalogs.movies }); }
-  if (type === "series" && id === "imdb-popular-series") { hits.shows++; return res.json({ metas: catalogs.shows }); }
-  hits.other++;
-  res.json({ metas: [] });
+  hits.catalog++;
+  res.json({ metas: resolveCatalog(req.params.type, req.params.id, {}) });
 });
 
 app.get("/catalog/:type/:id/:extra.json", (req, res) => {
-  const { type, id } = req.params;
-  if (type === "movie" && id === "imdb-popular-movies") return res.json({ metas: catalogs.movies });
-  if (type === "series" && id === "imdb-popular-series") return res.json({ metas: catalogs.shows });
-  res.json({ metas: [] });
+  hits.catalog++;
+  res.json({
+    metas: resolveCatalog(req.params.type, req.params.id, parseExtra(req.params.extra)),
+  });
 });
 
-app.get("/status", (_, res) =>
+app.get("/status", (_, res) => {
+  const stats = (key, type) => ({
+    count: allMetas[key].length,
+    trending: allMetas[key].filter((m) => m._rankChange > 0).length,
+    topRated: allMetas[key].filter(
+      (m) => m.imdbRating && parseFloat(m.imdbRating) >= TOP_RATED_THRESHOLD
+    ).length,
+    genres: [...genreSets[type]].sort(),
+  });
   res.json({
     status: "ok",
-    version: MANIFEST.version,
+    version: "2.0.0",
     hits,
-    movies: { count: catalogs.movies.length, lastUpdated: new Date().toISOString() },
-    shows: { count: catalogs.shows.length, lastUpdated: new Date().toISOString() },
-  })
-);
+    movies: stats("movies", "movie"),
+    shows: stats("shows", "series"),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
 
 Promise.all([refreshAll(), ensureLogo()]).then(() => {
   cron.schedule("0 */6 * * *", refreshAll);
-  app.listen(PORT, "0.0.0.0", () => console.log(`IMDb Popular addon v1.0.8 on :${PORT}`));
+  app.listen(PORT, "0.0.0.0", () =>
+    console.log(`IMDb Popular addon v2.0.0 on :${PORT}`)
+  );
 });
