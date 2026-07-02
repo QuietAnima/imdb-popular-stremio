@@ -13,7 +13,7 @@ const MANIFEST = {
   version: "1.0.8",
   name: "IMDb Popular",
   description: "IMDb Most Popular Movies and TV Shows, updated daily",
-  logo: "http://100.72.178.10:7001/logo.png",
+  logo: "",
   resources: ["catalog"],
   types: ["movie", "series"],
   catalogs: [
@@ -111,7 +111,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const LOGO_URL = "https://i.postimg.cc/MpFNn28w/image.png";
+const LOGO_URL = "https://raw.githubusercontent.com/QuietAnima/imdb-popular-stremio/main/logo.png";
 const fs = require("fs"), path = require("path");
 const LOGO_PATH = path.join(__dirname, "logo.png");
 let logoBuf = null;
@@ -145,7 +145,7 @@ app.get("/logo.png", async (_, res) => {
   res.send(logoBuf);
 });
 
-app.get("/manifest.json", (_, res) => { hits.manifest++; res.json(MANIFEST); });
+app.get("/manifest.json", (req, res) => { hits.manifest++; const proto = req.headers["x-forwarded-proto"] || req.protocol || "http"; const host = req.headers.host; res.json({ ...MANIFEST, logo: `${proto}://${host}/logo.png` }); });
 
 app.get("/catalog/:type/:id.json", (req, res) => {
   const { type, id } = req.params;
