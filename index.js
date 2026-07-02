@@ -224,6 +224,11 @@ function buildManifest(proto, host) {
   ];
 
   return {
+    stremioAddonsConfig: {
+      issuer: "https://stremio-addons.net",
+      signature:
+        "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0..G-1w-gbjMK8hs2Gr8aYivw.ktgQJPi38gdApAgHbuF5xHOdHum70ITuae6Fvgp8HvDmrB-ymxxInHwkPjw-ak2kp7iEEersXEh7lLV_GZEYEKa7KQ9XAbsnp4zm-zpIcMsjZvVdevRfRXXN7FTHJrSj.Kk6vdgPh8M-3yUCNp2-4tQ",
+    },
     id: "community.imdb-popular",
     version: "2.0.0",
     name: "IMDb Popular",
