@@ -5,24 +5,27 @@
 </p>
 
 <p align="center">
-  A self-hosted <a href="https://www.stremio.com/">Stremio</a> addon that adds <strong>IMDb Most Popular Movies</strong> and <strong>IMDb Most Popular TV Series</strong> catalogs to your Stremio home screen.
+  A self-hosted <a href="https://www.stremio.com/">Stremio</a> addon that brings <strong>IMDb Most Popular</strong>, <strong>Trending</strong>, and <strong>Top Rated</strong> catalogs for movies and TV series to your Stremio home screen - with genre filtering and search.
 </p>
 
 ---
 
 ## Features
 
-- **Two catalogs** - IMDb Popular Movies and IMDb Popular Series, shown directly on the Stremio home screen
-- **Rich metadata** - each title includes poster, IMDb rating, year, vote count, and genres
-- **Auto-refresh** - catalog data refreshes every 6 hours so listings stay current
+- **Six catalogs** - Popular Movies, Popular Series, Trending Movies, Trending Series, Top Rated Movies, Top Rated Series
+- **Genre filtering** on every catalog, with genres dynamically sourced from IMDb data
+- **Search** across all catalogs - matches title, plot, cast, and director
+- **Trending** catalogs show titles climbing fastest in IMDb popularity, sorted by rank change
+- **Top Rated** catalogs filter to titles with a 7.0+ IMDb rating, sorted by rating descending
+- **Popular** catalogs preserve IMDb's own popularity rank order
+- **Rich metadata** - plot, genres, runtime, cast, director, certificate, year, poster, and IMDb rating
+- **Smart runtime display** - films over 1 hour shown as `1h 30min` instead of raw minutes
+- **Auto-refresh** - catalog data refreshes every 6 hours via node-cron
 - **Lightweight** - single Node.js process with in-memory cache, no database required
 - **Self-hosted** - runs as a Docker container on your own server
-- **CORS enabled** - works with both desktop and web versions of Stremio
-- **Health endpoint** - built-in `/status` route for monitoring
+- **CORS enabled** - works with desktop, web, and mobile Stremio clients
 
 ## Install in Stremio
-
-If someone is already hosting the addon (or you have it running), add it to Stremio:
 
 1. Open **Stremio** and go to the **Addons** page (puzzle piece icon)
 2. In the search bar at the top, enter the addon URL:
@@ -31,7 +34,7 @@ If someone is already hosting the addon (or you have it running), add it to Stre
    ```
 3. Click **Install**
 
-The two new catalogs will appear on your Stremio home screen.
+Six new catalogs will appear on your Stremio home screen.
 
 > **Stremio Web** users: make sure the addon URL is reachable from your browser.
 
@@ -46,8 +49,6 @@ docker run -d --name imdb-popular -p 7001:7001 --restart unless-stopped imdb-pop
 
 ### Docker Compose
 
-Create a `docker-compose.yml`:
-
 ```yaml
 services:
   imdb-popular:
@@ -57,8 +58,6 @@ services:
       - "7001:7001"
     restart: unless-stopped
 ```
-
-Then start it:
 
 ```bash
 docker compose up -d
@@ -79,20 +78,20 @@ The addon will be available at `http://localhost:7001/manifest.json`.
 |----------|---------|-------------|
 | `PORT`   | `7001`  | HTTP port the addon listens on |
 
-Example with a custom port:
-
-```bash
-docker run -d -e PORT=7001 -p 7001:7001 --restart unless-stopped imdb-popular-stremio
-```
-
 ## API Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /manifest.json` | Stremio addon manifest |
-| `GET /catalog/movie/imdb-popular-movies.json` | Popular movies catalog |
-| `GET /catalog/series/imdb-popular-series.json` | Popular series catalog |
-| `GET /status` | Health check - returns cache sizes and last update timestamps |
+| `GET /manifest.json` | Stremio addon manifest (dynamic genre lists) |
+| `GET /catalog/movie/imdb-popular-movies.json` | Popular movies |
+| `GET /catalog/series/imdb-popular-series.json` | Popular series |
+| `GET /catalog/movie/imdb-trending-movies.json` | Trending movies |
+| `GET /catalog/series/imdb-trending-series.json` | Trending series |
+| `GET /catalog/movie/imdb-top-rated-movies.json` | Top rated movies |
+| `GET /catalog/series/imdb-top-rated-series.json` | Top rated series |
+| `GET /status` | Health check - item counts, trending/top-rated stats, genre lists |
+
+All catalog endpoints accept optional extras via `/:extra.json` - `genre=Action`, `search=query`, `skip=N`.
 
 ## Data Source
 
@@ -108,3 +107,5 @@ Catalog data is sourced from [crazyuploader/IMDb-Top-50](https://github.com/craz
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+---
