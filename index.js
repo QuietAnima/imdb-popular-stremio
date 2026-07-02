@@ -1,7 +1,9 @@
 const express = require("express");
-const cron = require("node-cron");
 const fs = require("fs");
 const path = require("path");
+
+const IS_VERCEL = !!process.env.VERCEL;
+const cron = IS_VERCEL ? null : require("node-cron");
 
 const app = express();
 const PORT = process.env.PORT || 7001;
@@ -18,6 +20,25 @@ const SOURCES = {
 
 const allMetas = { movies: [], shows: [] };
 const genreSets = { movie: new Set(), series: new Set() };
+
+// ---------------------------------------------------------------------------
+// TTL cache (Vercel serverless uses this; Docker uses node-cron instead)
+// ---------------------------------------------------------------------------
+
+let lastRefresh = 0;
+let refreshPromise = null;
+const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+
+async function ensureData() {
+  const now = Date.now();
+  if (allMetas.movies.length > 0 && now - lastRefresh < CACHE_TTL) return;
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = refreshAll()
+    .then(() => { lastRefresh = Date.now(); })
+    .catch((e) => { console.error("[ensureData] refresh failed:", e.message); })
+    .finally(() => { refreshPromise = null; });
+  return refreshPromise;
+}
 
 // ---------------------------------------------------------------------------
 // Utility helpers
@@ -235,11 +256,12 @@ function buildManifest(proto, host) {
 
 const hits = { manifest: 0, catalog: 0 };
 
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "*");
   const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   console.log(`[REQ] ${req.method} ${req.url} from ${ip}`);
+  try { await ensureData(); } catch (e) { console.error("[middleware] ensureData error:", e.message); }
   next();
 });
 
@@ -264,8 +286,8 @@ async function ensureLogo() {
     const res = await fn(LOGO_URL);
     if (res.ok) {
       logoBuf = Buffer.from(await res.arrayBuffer());
-      fs.writeFileSync(LOGO_PATH, logoBuf);
-      console.log(`[logo] Downloaded and cached: ${logoBuf.length} bytes`);
+      try { fs.writeFileSync(LOGO_PATH, logoBuf); } catch (_) { /* read-only on Vercel */ }
+      console.log(`[logo] Downloaded: ${logoBuf.length} bytes`);
     }
   } catch (e) {
     console.error("[logo] Failed:", e.message);
@@ -321,9 +343,16 @@ app.get("/status", (_, res) => {
 // Start
 // ---------------------------------------------------------------------------
 
-Promise.all([refreshAll(), ensureLogo()]).then(() => {
-  cron.schedule("0 */6 * * *", refreshAll);
-  app.listen(PORT, "0.0.0.0", () =>
-    console.log(`IMDb Popular addon v2.0.0 on :${PORT}`)
-  );
-});
+module.exports = app;
+
+if (!IS_VERCEL) {
+  Promise.all([refreshAll(), ensureLogo()]).then(() => {
+    lastRefresh = Date.now();
+    cron.schedule("0 */6 * * *", () => {
+      refreshAll().then(() => { lastRefresh = Date.now(); });
+    });
+    app.listen(PORT, "0.0.0.0", () =>
+      console.log(`IMDb Popular addon v2.0.0 on :${PORT}`)
+    );
+  });
+}
