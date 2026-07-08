@@ -291,6 +291,9 @@ async function ensureLogo() {
     }
   } catch (e) {
     console.error("[logo] Failed:", e.message);
+  }
+}
+
 // Landing page
 app.get('/', (req, res) => {
   const manifest = buildManifest();
@@ -393,8 +396,6 @@ app.get('/', (req, res) => {
 </html>`);
 });
 
-  }
-}
 
 app.get("/logo.png", async (_, res) => {
   await ensureLogo();
