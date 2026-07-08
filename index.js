@@ -242,8 +242,8 @@ function buildManifest(proto, host) {
       { type: "series", id: "imdb-popular-series", name: "IMDb Popular Series", extra: seriesExtras },
       { type: "movie", id: "imdb-trending-movies", name: "IMDb Trending Movies", extra: movieExtras },
       { type: "series", id: "imdb-trending-series", name: "IMDb Trending Series", extra: seriesExtras },
-      { type: "movie", id: "imdb-top-rated-movies", name: "IMDb Top Rated Popular", extra: movieExtras },
-      { type: "series", id: "imdb-top-rated-series", name: "IMDb Top Rated Popular", extra: seriesExtras },
+      { type: "movie", id: "imdb-top-rated-movies", name: "IMDb Top Rated Movies", extra: movieExtras },
+      { type: "series", id: "imdb-top-rated-series", name: "IMDb Top Rated Series", extra: seriesExtras },
     ],
     behaviorHints: { configurable: false },
     idPrefixes: ["tt"],
@@ -298,6 +298,7 @@ async function ensureLogo() {
 app.get('/', (req, res) => {
   const manifest = buildManifest();
   res.setHeader('Content-Type', 'text/html');
+  res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400');
   res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -401,30 +402,34 @@ app.get("/logo.png", async (_, res) => {
   await ensureLogo();
   if (!logoBuf) return res.status(404).end();
   res.set("Content-Type", "image/png");
-  res.set("Cache-Control", "public, max-age=86400");
+  res.set("Cache-Control", "public, max-age=604800, s-maxage=604800");
   res.send(logoBuf);
 });
 
 // Routes ---
 app.get("/manifest.json", (req, res) => {
   hits.manifest++;
+  res.set("Cache-Control", "public, max-age=86400, s-maxage=86400");
   const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
   res.json(buildManifest(proto, req.headers.host));
 });
 
 app.get("/catalog/:type/:id.json", (req, res) => {
   hits.catalog++;
+  res.set("Cache-Control", "public, max-age=1800, s-maxage=3600, stale-while-revalidate=86400");
   res.json({ metas: resolveCatalog(req.params.type, req.params.id, {}) });
 });
 
 app.get("/catalog/:type/:id/:extra.json", (req, res) => {
   hits.catalog++;
+  res.set("Cache-Control", "public, max-age=1800, s-maxage=3600, stale-while-revalidate=86400");
   res.json({
     metas: resolveCatalog(req.params.type, req.params.id, parseExtra(req.params.extra)),
   });
 });
 
 app.get("/status", (_, res) => {
+  res.set("Cache-Control", "no-cache");
   const stats = (key, type) => ({
     count: allMetas[key].length,
     trending: allMetas[key].filter((m) => m._rankChange > 0).length,
