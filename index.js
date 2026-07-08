@@ -291,6 +291,108 @@ async function ensureLogo() {
     }
   } catch (e) {
     console.error("[logo] Failed:", e.message);
+// Landing page
+app.get('/', (req, res) => {
+  const manifest = buildManifest();
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${manifest.name} - Stremio Addon</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a2e;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+      max-width: 520px;
+    }
+    .logo {
+      width: 120px;
+      height: 120px;
+      margin-bottom: 1.5rem;
+      border-radius: 20px;
+    }
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.75rem;
+    }
+    .description {
+      font-size: 1.05rem;
+      color: #a0a0c0;
+      line-height: 1.6;
+      margin-bottom: 2rem;
+    }
+    .install-btn {
+      display: inline-block;
+      background: #7b5bf5;
+      color: #fff;
+      text-decoration: none;
+      padding: 0.9rem 2.5rem;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .install-btn:hover {
+      background: #6a4be0;
+      transform: translateY(-1px);
+    }
+    .install-btn:active {
+      transform: translateY(0);
+    }
+    .catalogs {
+      margin-top: 2.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+    }
+    .catalog-tag {
+      background: rgba(123, 91, 245, 0.15);
+      color: #b0a0e0;
+      padding: 0.35rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+    }
+    footer {
+      position: fixed;
+      bottom: 1rem;
+      color: #505070;
+      font-size: 0.8rem;
+    }
+    footer a { color: #7b5bf5; text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <img src="/logo.png" alt="${manifest.name}" class="logo">
+    <h1>${manifest.name}</h1>
+    <p class="description">${manifest.description}</p>
+    <a href="stremio://imdb-popular-stremio.vercel.app/manifest.json" class="install-btn">Install to Stremio</a>
+    <div class="catalogs">
+      ${manifest.catalogs.map(c => `<span class="catalog-tag">${c.name}</span>`).join('\n      ')}
+    </div>
+  </div>
+  <footer>v${manifest.version} &middot; <a href="/manifest.json">Manifest</a></footer>
+</body>
+</html>`);
+});
+
   }
 }
 
